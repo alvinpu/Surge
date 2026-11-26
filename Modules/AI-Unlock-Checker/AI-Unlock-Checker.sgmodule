@@ -1,10 +1,11 @@
 #!name=AI Unlock Checker
+#!version=2.0.0
 #!desc=从所有节点按名称筛选美国线路。按三家 AI 匿名检测结果筛选，可选显示 IP 风险分，可自动维护 AI Picks。
 #!requirement=SYSTEM = 'macOS'
-#!arguments=mode:preview,risk:off
-#!arguments-desc=risk=on 显示 IPPure 风险分，分数不影响入组。preview 只检测；改为 apply 后，每次运行都可写回。Mac 当地时间每周三、周日 06:30 检测，可手动运行 AI Unlock Scan。
+#!arguments=risk:off
+#!arguments-desc=risk=on 显示 IPPure 风险分，分数不影响入组。自动写回 AI Picks，零条合格时临时使用 🇺🇸USA。Mac 当地时间每周三、周日 06:30 检测，可手动运行 AI Unlock Scan。
 [Script]
-AI Unlock Scan = type=cron,cronexp="30 6 * * 0,3",timeout=600,script-path=https://raw.githubusercontent.com/alvinpu/Surge/main/Modules/AI-Unlock-Checker/ai-check.js,argument="{{{mode}}}|{{{risk}}}"
-AI Unlock Results = type=generic,timeout=5,script-path=https://raw.githubusercontent.com/alvinpu/Surge/main/Modules/AI-Unlock-Checker/ai-check.js,argument=panel
+AI Unlock Scan = type=cron,cronexp="30 6 * * 0,3",timeout=600,script-path=https://raw.githubusercontent.com/alvinpu/Surge/af2ae8839d73437ee0741affe83edd8e78d55252/Modules/AI-Unlock-Checker/ai-check.js,argument="apply|{{{risk}}}"
+AI Unlock Results = type=generic,timeout=5,script-path=https://raw.githubusercontent.com/alvinpu/Surge/af2ae8839d73437ee0741affe83edd8e78d55252/Modules/AI-Unlock-Checker/ai-check.js,argument=panel
 [Panel]
 AI Unlock Results = script-name=AI Unlock Results,title=AI Unlock Checker,update-interval=60
