@@ -1,10 +1,10 @@
 #!name=AI Unlock Checker
-#!version=4.1.0
+#!version=4.1.1
 #!desc=每天 06:30 从所有订阅按美国名称筛选，07:00 补位。每条线路单次查询 IPPure、ChatGPT、Gemini，美国原生 IP、风险分低于 39 且双服务匿名响应通过时写入 AI Picks。单项超时 15 秒，记录 HTTP 跳转目标。零条合格时保留原组，同轮跳过自动补测。点 AI Picks 面板刷新按钮可手动重测。
 #!requirement=SYSTEM = 'macOS'
 [Script]
-AI Unlock Scan = type=cron,cronexp="30 6 * * *",timeout=720,script-path=https://raw.githubusercontent.com/alvinpu/Surge/14f7111205e37eea41f8b504e743fd60735d297a/Modules/AI-Unlock-Checker/ai-check.js,argument=primary
-AI Unlock Backup = type=cron,cronexp="0 7 * * *",timeout=720,script-path=https://raw.githubusercontent.com/alvinpu/Surge/14f7111205e37eea41f8b504e743fd60735d297a/Modules/AI-Unlock-Checker/ai-check.js,argument=backup
-AI Unlock Results = type=generic,timeout=720,script-path=https://raw.githubusercontent.com/alvinpu/Surge/14f7111205e37eea41f8b504e743fd60735d297a/Modules/AI-Unlock-Checker/ai-check.js,argument=panel
+AI Unlock Scan = type=cron,cronexp="30 6 * * *",timeout=720,script-path=https://raw.githubusercontent.com/alvinpu/Surge/6306fd8eb30a1df916effadcf39c75e0675cabe3/Modules/AI-Unlock-Checker/ai-check.js,argument=primary
+AI Unlock Backup = type=cron,cronexp="0 7 * * *",timeout=720,script-path=https://raw.githubusercontent.com/alvinpu/Surge/6306fd8eb30a1df916effadcf39c75e0675cabe3/Modules/AI-Unlock-Checker/ai-check.js,argument=backup
+AI Unlock Results = type=generic,timeout=720,script-path=https://raw.githubusercontent.com/alvinpu/Surge/6306fd8eb30a1df916effadcf39c75e0675cabe3/Modules/AI-Unlock-Checker/ai-check.js,argument=panel
 [Panel]
-AI Unlock Results = script-name=AI Unlock Results,title=AI Picks,update-interval=300
+AI Unlock Results = script-name=AI Unlock Results,title=AI Picks,content="点刷新按钮开始检测",update-interval=300
