@@ -9,7 +9,7 @@ function targetName(content) {
 }
 const REPORT = 'us-residential-report-v1';
 const mode = typeof $argument === 'string' ? $argument : 'primary';
-const ruleVersion = 'us-residential-consensus-v1';
+const ruleVersion = 'us-residential-ippure-v1';
 const marker = '# Static Residential sync v1 ';
 
 function api(method, path, body) {
@@ -75,22 +75,18 @@ async function inspect(policy) {
   const info = response.error ? null : parseJSON(response.body);
   const country = info?.countryCode || '';
   const residential = typeof info?.isResidential === 'boolean' ? info.isResidential : null;
-  const row = {country,residential,kind:'',secondaryCountry:'',eligible:false,issue:response.error || ''};
-  if (country !== 'US' || residential !== true) return row;
-  const ip = info.ip;
-  if (typeof ip !== 'string' || !/^[0-9a-f:.]+$/i.test(ip)) {
-    row.issue = '出口 IP 缺失或格式异常';
-    return row;
-  }
-  // Classify the very same observed IP, also when the provider routes sites differently.
-  const check = await request(policy, 'https://proxycheck.io/v2/'+encodeURIComponent(ip)+'?asn=1&vpn=1');
-  const payload = !check.error && parseJSON(check.body);
-  const entry = payload?.status === 'ok' ? payload[ip] : null;
-  row.kind = entry?.type || '';
-  row.secondaryCountry = entry?.isocode || '';
-  row.issue = check.error || (row.kind && row.secondaryCountry ? '' : '第二来源未给出有效分类');
-  row.eligible = row.kind === 'Residential' && row.secondaryCountry === 'US';
-  return row;
+  return {country,residential,eligible:country === 'US' && residential === true,issue:response.error || ''};
+}
+
+// On a same-round upgrade, reuse the classification already obtained through each policy.
+function previousClassifications(state, host, manual, now) {
+  if (manual || state.rule !== 'us-residential-consensus-v1' || state.writer !== host ||
+      !(state.completed >= roundStart(now)) || !(state.completed >= state.attempted)) return null;
+  const saved = parseJSON($persistentStore.read(REPORT));
+  const sampled = Date.parse(saved?.time);
+  if (!Array.isArray(saved?.rows) || !Number.isFinite(sampled) ||
+      Math.abs(sampled-state.completed)>60000) return null;
+  return {time:saved.time,byPolicy:new Map(saved.rows.map(n=>[n.policy,n]))};
 }
 
 function replacement(content, names, sources, local) {
@@ -116,9 +112,8 @@ function replacement(content, names, sources, local) {
 }
 
 function summary(r) {
-  const home = r.rows.filter(n=>n.residential === true && n.country === 'US');
-  const passed = home.filter(n=>n.eligible);
-  return [r.time,'美国名称 '+r.rows.length+' · IPPure 美国住宅 '+home.length+' · 双源美国住宅 '+passed.length,
+  const passed = r.rows.filter(n=>n.eligible);
+  return [r.time,'美国名称 '+r.rows.length+' · IPPure 美国住宅入组 '+passed.length,
     ...passed.map(n=>n.name+' ['+(n.source || '本地')+']'),r.note].join('\n');
 }
 
@@ -191,9 +186,18 @@ async function run() {
     const data = await api('GET','/v1/policies',{include_external:true});
     const rows = inventory(data);
     if (!rows.length) throw new Error('没有匹配的美国节点');
+    const previous = previousClassifications(state,host,manual,Date.now());
     const results = new Map();
-    await eachNode([...new Set(rows.map(n=>n.policy))],async policy=>{
-      results.set(policy,await inspect(policy));
+    const policies = [...new Set(rows.map(n=>n.policy))];
+    await eachNode(policies,async policy=>{
+      const old = previous?.byPolicy.get(policy);
+      if (old) {
+        const {country,residential} = old;
+        results.set(policy,{country,residential,eligible:country === 'US' && residential === true,
+          issue:country && residential !== null ? '' : old.issue || ''});
+      } else {
+        results.set(policy,await inspect(policy));
+      }
     });
     for (const n of rows) Object.assign(n,results.get(n.policy));
     const qualified = rows.filter(n=>n.eligible);
@@ -212,6 +216,10 @@ async function run() {
     const {token:oldToken,until:oldUntil,...finished} = next;
     await write(current,stamp(content,finished));
     const report = {time:new Date().toISOString(),rows,note:qualified.length?'Static Residential 已写入并读回':'本轮零条合格，保留上次配置，本轮结束'};
+    if (previous) {
+      const reused = policies.filter(policy=>previous.byPolicy.has(policy)).length;
+      report.note += '；沿用 '+previous.time+' 的 IPPure 记录 '+reused+' 条，新查询 '+(policies.length-reused)+' 条';
+    }
     $persistentStore.write(JSON.stringify(report),REPORT);
     console.log(summary(report));
     return {title:'Static Residential',content:summary(report)};
