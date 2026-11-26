@@ -1,5 +1,7 @@
 # Surge
 
+美国住宅／家宽分组请使用独立的 [US Residential Checker](Modules/US-Residential-Checker/README.md)，自动维护 `Static Residential`。下文介绍 AI 分组模块。
+
 **AI Unlock Checker** 是一个 Surge Mac 模块。它从本地代理和已加载的远程订阅中找到美国名称线路，通过每条线路分别访问 IPPure、ChatGPT 和 Gemini，再把符合条件的线路写进 `AI Picks` 智能策略组。适合已经有节点订阅、想让 Surge 定期维护 AI 候选线路的人。
 
 [模块安装地址（在 Surge 中从 URL 安装）](https://raw.githubusercontent.com/alvinpu/Surge/refs/heads/main/Modules/AI-Unlock-Checker/AI-Unlock-Checker.sgmodule) · [模块定义](Modules/AI-Unlock-Checker/AI-Unlock-Checker.sgmodule) · [检测脚本](Modules/AI-Unlock-Checker/ai-check.js)
