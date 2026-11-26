@@ -2,8 +2,8 @@
 // Surge Mac. All network probes explicitly use one named policy and no cookie jar.
 
 const TARGET = 'AI Picks';
-const REPORT = 'usa-ai-report-v4';
-const [mode, riskSetting] = (typeof $argument === 'string' ? $argument : 'preview').split('|');
+const REPORT = 'usa-ai-report-v5';
+const [mode, riskSetting] = (typeof $argument === 'string' ? $argument : 'apply').split('|');
 const showRisk = riskSetting === 'on';
 
 function api(method, path, body) {
@@ -72,9 +72,22 @@ async function probeAI(policy) {
   return {ChatGPT:chat,Claude:claudeResult==='验证页' && CLAUDE_REGIONS.has(region) ? '支持地区 '+region+' · 验证页待确认' : claudeResult,Gemini:geminiResult};
 }
 
-async function inspect({name, source, policy}) {
+async function testNodes(nodes) {
+  for (let i=0; i<nodes.length; i+=8) {
+    const batch = nodes.slice(i,i+8);
+    const results = await api('POST','/v1/policies/test',{policy_names:batch.map(n=>n.policy)});
+    for (const n of batch) {
+      const record = results[n.name] || results[n.policy];
+      const ms = record?.['round-one-total'];
+      n.delay = record && !record.error && Number.isFinite(ms) && ms>0 ? ms : null;
+    }
+  }
+}
+
+async function inspect({name, source, policy, delay}) {
+  if (delay === null) return {name,source,eligible:false,delay,ai:{}};
   const ai = await probeAI(policy);
-  const row = {name, source, ai, eligible:Object.values(ai).every(result=>result === '通过')};
+  const row = {name,source,policy,ai,delay,eligible:Object.values(ai).every(result=>result === '通过')};
   if (showRisk) {
     const result = await request(policy, 'https://my.ippure.com/v1/info');
     const score = !result.error ? parseJSON(result.body)?.fraudScore : null;
@@ -89,6 +102,12 @@ function replacement(content, names, sources, local) {
   if (indices.length !== 1) throw new Error('目标组缺失或重复');
   const i = indices[0];
   // Accept only the expected smart group with named options, no explicit members.
+  const standby = TARGET + ' = select, 🇺🇸USA';
+  if (!names.length) {
+    lines[i] = standby;
+    return lines.join('\n');
+  }
+  if (lines[i].trim() === standby) lines[i] = TARGET + ' = smart, evaluate-before-use=1';
   const rhs = lines[i].slice(lines[i].indexOf('=') + 1);
   const fields = rhs.match(/(?:[^,"\n]|"[^"\n]*")+/g) || [];
   if (fields.shift()?.trim() !== 'smart' || fields.some(f => !/^\s*[\w-]+\s*=/.test(f))) throw new Error('目标组结构已变化');
@@ -110,7 +129,7 @@ function summary(r) {
   const pending = r.rows.filter(x=>x.ai.ChatGPT === '通过' && x.ai.Gemini === '通过' && x.ai.Claude.includes('验证页'));
   const label = x=>x.name+' ['+(x.source || '本地')+']'+
     (r.showRisk ? ' · IP 风险 '+(x.risk ?? '未知') : '');
-  return [r.time,'匹配 '+r.rows.length+' · 三家匿名通过 '+passed.length,
+  return [r.time,'匹配 '+r.rows.length+' · Surge 连通 '+r.rows.filter(x=>x.delay>0).length+' · 入组 '+passed.length,
     ...passed.map(label),'ChatGPT、Gemini 通过，Claude 待验证 '+pending.length,
     ...pending.map(label),r.note].join('\n');
 }
@@ -125,6 +144,7 @@ async function run() {
   const data = await api('GET','/v1/policies',{include_external:true});
   const nodes = inventory(data);
   if (!nodes.length) throw new Error('来源组没有可检测节点');
+  await testNodes(nodes);
   const rows = Array(nodes.length);
   let cursor = 0;
   async function worker() {
@@ -134,12 +154,15 @@ async function run() {
     }
   }
   await Promise.all(Array.from({length:Math.min(4,nodes.length)},worker));
+  const finalists = rows.filter(x=>x.eligible);
+  await testNodes(finalists);
+  for (const x of finalists) x.eligible = x.delay !== null;
   const qualified = rows.filter(x=>x.eligible);
   const passed = [...new Set(qualified.map(x=>x.name))];
   const report = {time:new Date().toISOString(),rows,showRisk,note:'仅检测'};
   if (mode === 'apply') {
-    if (!passed.length) report.note = '本轮零通过，保留原组';
-    else {
+    {
+      if (!passed.length && !(data['policy-groups'] || []).includes('🇺🇸USA')) throw new Error('备用组不存在');
       if (!section.editable || !section.revision) throw new Error('目标配置不可编辑');
       const sources = [...new Set(qualified.map(x=>x.source).filter(Boolean))];
       const local = qualified.some(x=>!x.source);
@@ -149,7 +172,7 @@ async function run() {
         await api('POST','/v1/profiles/section',{name:sectionName,revision:section.revision,content});
         if ((await readSection()).content !== content) throw new Error('写后读回不一致');
       }
-      report.note = '已核对目标配置';
+      report.note = passed.length ? 'AI Picks 已按本轮复测更新' : '零条合格，AI Picks 临时使用 🇺🇸USA（常规备用）';
     }
   }
   $persistentStore.write(JSON.stringify(report),REPORT);
