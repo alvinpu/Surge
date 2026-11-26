@@ -193,8 +193,8 @@ function stamp(content, state) {
 }
 
 function skipReason(state,host,phase,now) {
-  if (state.rule === ruleVersion && state.attempted >= roundStart(now)) return '本轮已检测或已启动，跳过';
   if (state.until > now) return '另一轮检测正在运行，跳过';
+  if (phase !== 'manual' && state.rule === ruleVersion && state.attempted >= roundStart(now)) return '本轮已检测或已启动，跳过';
   if (phase === 'primary' && state.writer && state.writer !== host) return '由上次成功的 Mac 优先刷新，本机等待 07:00 补位';
   return '';
 }
@@ -208,13 +208,14 @@ async function run() {
     if (saved.content.trimEnd() !== content.trimEnd()) throw new Error('共享配置写后读回不一致');
     return saved;
   }
-  if (mode==='panel') {
+  const manual = mode === 'panel' && typeof $trigger !== 'undefined' && $trigger === 'button';
+  if (mode === 'panel' && !manual) {
     const saved = parseJSON($persistentStore.read(REPORT));
     const state = readState((await readSection()).content);
     const latest = state.completed ? '共享配置更新于 '+new Date(state.completed).toISOString()+' · '+state.count+' 条' : '尚无成功刷新记录';
     return {title:'AI Picks',content:saved ? latest+'\n'+summary(saved) : latest};
   }
-  if (!['primary','backup'].includes(mode)) throw new Error('未知运行模式');
+  if (!manual && !['primary','backup'].includes(mode)) throw new Error('未知运行模式');
   const section = await readSection();
   if (!section.editable || !section.revision) throw new Error('共享配置不可编辑');
   const state = readState(section.content);
@@ -224,7 +225,7 @@ async function run() {
     host = randomID();
     if (!$persistentStore.write(host,'ai-picks-device-id')) throw new Error('无法保存本机标识');
   }
-  const skip = skipReason(state,host,mode,Date.now());
+  const skip = skipReason(state,host,manual ? 'manual' : mode,Date.now());
   if (skip) {console.log(skip);return {title:'AI Picks',content:skip};}
   const target = targetName(section.content);
   const groupLine = content => content.split('\n').find(l=>l.split('=')[0].trim()===target);
