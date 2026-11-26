@@ -1,10 +1,10 @@
 #!name=US Residential Checker
-#!version=1.0.0
-#!desc=每天 06:00 按美国名称筛选节点，查出口 IP，再用两家数据库核对住宅属性，自动更新 Static Residential。06:20 补位，面板刷新可手动重测。
+#!version=1.1.0
+#!desc=每天 06:00 按美国名称筛选节点，每条线路仅查一次 IPPure，美国住宅即入组，自动更新 Static Residential。06:20 补位，面板刷新可手动重测。
 #!requirement=SYSTEM = 'macOS'
 [Script]
-US Residential Scan = type=cron,cronexp="0 6 * * *",timeout=720,script-path=https://raw.githubusercontent.com/alvinpu/Surge/558ea54f81f9c150b01e95adebb28925c120cfc5/Modules/US-Residential-Checker/residential.js,argument=primary
-US Residential Backup = type=cron,cronexp="20 6 * * *",timeout=720,script-path=https://raw.githubusercontent.com/alvinpu/Surge/558ea54f81f9c150b01e95adebb28925c120cfc5/Modules/US-Residential-Checker/residential.js,argument=backup
-US Residential Results = type=generic,timeout=720,script-path=https://raw.githubusercontent.com/alvinpu/Surge/558ea54f81f9c150b01e95adebb28925c120cfc5/Modules/US-Residential-Checker/residential.js,argument=panel
+US Residential Scan = type=cron,cronexp="0 6 * * *",timeout=720,script-path=https://raw.githubusercontent.com/alvinpu/Surge/9e7298c580fafbdb7f054cab69d8b58ca1807af6/Modules/US-Residential-Checker/residential.js,argument=primary
+US Residential Backup = type=cron,cronexp="20 6 * * *",timeout=720,script-path=https://raw.githubusercontent.com/alvinpu/Surge/9e7298c580fafbdb7f054cab69d8b58ca1807af6/Modules/US-Residential-Checker/residential.js,argument=backup
+US Residential Results = type=generic,timeout=720,script-path=https://raw.githubusercontent.com/alvinpu/Surge/9e7298c580fafbdb7f054cab69d8b58ca1807af6/Modules/US-Residential-Checker/residential.js,argument=panel
 [Panel]
 US Residential Results = script-name=US Residential Results,title=Static Residential,update-interval=300
