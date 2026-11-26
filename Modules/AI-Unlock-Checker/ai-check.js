@@ -172,7 +172,6 @@ function roundStart(time) {
   const d = new Date(time);
   d.setHours(6,30,0,0);
   if (d.getTime()>time) d.setDate(d.getDate()-1);
-  while (![0,3].includes(d.getDay())) d.setDate(d.getDate()-1);
   return d.getTime();
 }
 
