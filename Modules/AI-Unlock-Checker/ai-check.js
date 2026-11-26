@@ -1,7 +1,7 @@
 'use strict';
 // Surge Mac. All network probes explicitly use one named policy and no cookie jar.
 
-const TARGET = '🏠Static Residential 🇺🇸';
+const TARGET = 'Atlas AI';
 const REPORT = 'usa-ai-report-v4';
 const [mode, riskSetting] = (typeof $argument === 'string' ? $argument : 'preview').split('|');
 const showRisk = riskSetting === 'on';
