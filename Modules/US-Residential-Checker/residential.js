@@ -111,10 +111,33 @@ function replacement(content, names, sources, local) {
   return lines.join('\n');
 }
 
-function summary(r) {
+function logDetails(r) {
   const passed = r.rows.filter(n=>n.eligible);
   return [r.time,'美国名称 '+r.rows.length+' · IPPure 美国住宅入组 '+passed.length,
     ...passed.map(n=>n.name+' ['+(n.source || '本地')+']'),r.note].join('\n');
+}
+
+// All panels render one local-time line. Detailed rows remain in the report and logs.
+function panelLine(time, total, matched) {
+  const d = new Date(time);
+  const pad = n => String(n).padStart(2,'0');
+  const stamp = pad(d.getMonth()+1)+'/'+pad(d.getDate())+' '+pad(d.getHours())+':'+pad(d.getMinutes());
+  const counts = total == null ? '分组 '+matched+' 条' : '检测 '+total+' 条，入组 '+matched+' 条';
+  return stamp+' · '+counts+(matched===0 && total!=null ? '，保留原组' : '');
+}
+
+function latestPanel(state, saved) {
+  if (state.until > Date.now()) return '检测中…';
+  const localTime = Date.parse(saved?.time) || 0;
+  if (state.lastScan && state.lastScan.time >= Math.max(state.completed || 0,localTime)) {
+    const {time,total,matched} = state.lastScan;
+    return panelLine(time,total,matched);
+  }
+  // Profiles and reports from earlier versions have no lastScan.
+  if (Array.isArray(saved?.rows) && localTime > 0 && localTime >= (state.completed || 0)) {
+    return panelLine(saved.time,saved.rows.length,saved.rows.filter(n=>n.eligible).length);
+  }
+  return state.completed ? panelLine(state.completed,null,state.count) : '点刷新按钮开始检测';
 }
 
 function roundStart(time) {
@@ -161,8 +184,7 @@ async function run() {
   if (mode === 'panel' && !manual) {
     const saved = parseJSON($persistentStore.read(REPORT));
     const state = readState((await readSection()).content);
-    const latest = state.completed ? '共享配置更新于 '+new Date(state.completed).toISOString()+' · '+state.count+' 条' : '尚无成功刷新记录';
-    return {title:'Static Residential',content:saved ? latest+'\n'+summary(saved) : latest};
+    return {title:'Static Residential',content:latestPanel(state,saved)};
   }
   if (!manual && !['primary','backup'].includes(mode)) throw new Error('未知运行模式');
   const section = await readSection();
@@ -214,15 +236,16 @@ async function run() {
       next = {...attempt,writer:host,completed:Date.now(),count:qualified.length};
     }
     const {token:oldToken,until:oldUntil,...finished} = next;
-    await write(current,stamp(content,finished));
-    const report = {time:new Date().toISOString(),rows,note:qualified.length?'Static Residential 已写入并读回':'本轮零条合格，保留上次配置，本轮结束'};
+    const lastScan = {time:Date.now(),total:rows.length,matched:qualified.length};
+    await write(current,stamp(content,{...finished,lastScan}));
+    const report = {time:new Date(lastScan.time).toISOString(),rows,note:qualified.length?'Static Residential 已写入并读回':'本轮零条合格，保留上次配置，本轮结束'};
     if (previous) {
       const reused = policies.filter(policy=>previous.byPolicy.has(policy)).length;
       report.note += '；沿用 '+previous.time+' 的 IPPure 记录 '+reused+' 条，新查询 '+(policies.length-reused)+' 条';
     }
     $persistentStore.write(JSON.stringify(report),REPORT);
-    console.log(summary(report));
-    return {title:'Static Residential',content:summary(report)};
+    console.log(logDetails(report));
+    return {title:'Static Residential',content:panelLine(lastScan.time,lastScan.total,lastScan.matched)};
   } catch(error) {
     const current = await readSection();
     if (readState(current.content).token === token) {
@@ -234,5 +257,5 @@ async function run() {
 }
 run().then($done).catch(error => {
   console.log('检测失败：'+error.message);
-  $done({title:'Static Residential 检测失败',content:error.message});
+  $done({title:'Static Residential 检测失败',content:'分组更新未确认，详见脚本日志',style:'error'});
 });
