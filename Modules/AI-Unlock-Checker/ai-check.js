@@ -20,11 +20,24 @@ function api(method, path, body) {
   }));
 }
 
+function redirectResult(status, headers, base) {
+  const label = 'HTTP ' + status + ' 跳转';
+  const location = Object.entries(headers || {}).find(([key]) => key.toLowerCase() === 'location')?.[1];
+  if (typeof location !== 'string' || !location.trim()) return label + '（无 Location）';
+  try {
+    const to = new URL(location, base);
+    if (to.protocol === 'https:' || to.protocol === 'http:') return label + ' → ' + to.host + to.pathname;
+  } catch (_) {}
+  return label + '（目标无法解析）';
+}
+
 function request(policy, url) {
   return new Promise(resolve => {
-    $httpClient.get({url, policy, timeout: 10, 'auto-cookie': false, 'auto-redirect': false},
+    $httpClient.get({url, policy, timeout: 15, 'auto-cookie': false, 'auto-redirect': false},
       (error, response, body) => {
-        if (error) resolve({error: String(error)});
+        if ([300,301,302,303,307,308].includes(response?.status)) {
+          resolve({error: redirectResult(response.status, response.headers, url)});
+        } else if (error) resolve({error: String(error)});
         else if (!response || response.status !== 200) resolve({error: 'HTTP ' + (response?.status || '?'),body,headers:response?.headers});
         else resolve({body,headers:response.headers});
       });
@@ -139,8 +152,16 @@ function replacement(content, names, sources, local) {
 
 function summary(r) {
   const dual = r.rows.filter(both);
+  const redirects = [];
+  for (const row of r.rows) {
+    for (const [service, status] of Object.entries({...row.ai,IPPure:row.ipIssue})) {
+      if (typeof status === 'string' && /^HTTP 3\d\d 跳转/.test(status)) {
+        redirects.push(row.name + ' · ' + service + ' · ' + status);
+      }
+    }
+  }
   return [r.time,'匹配 '+r.rows.length+' · 两家通过 '+dual.length+' · 美国原生且风险低于 39 并通过 '+r.rows.filter(x=>x.eligible).length,
-    ...r.rows.filter(x=>x.eligible).map(x=>x.name+' · '+x.risk+' 分'),r.note].join('\n');
+    ...r.rows.filter(x=>x.eligible).map(x=>x.name+' · '+x.risk+' 分'),...redirects,r.note].join('\n');
 }
 
 function both(n) {
