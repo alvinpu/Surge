@@ -2,9 +2,10 @@
 // Surge Mac. All network probes explicitly use one named policy and no cookie jar.
 
 const TARGET = 'AI Picks';
-const REPORT = 'ai-picks-dual-v1';
+const REPORT = 'ai-picks-native-us-v1';
 const mode = typeof $argument === 'string' ? $argument : 'primary';
-const riskLimit = 25;
+const ruleVersion = 'us-native-risk-lt39-v1';
+const riskLimit = 39;
 const marker = '# AI Picks sync v1 ';
 
 function api(method, path, body) {
@@ -14,11 +15,11 @@ function api(method, path, body) {
   }));
 }
 
-function request(policy, url, redirect = false) {
+function request(policy, url) {
   return new Promise(resolve => {
-    $httpClient.get({url, policy, timeout: 10, 'auto-cookie': false, 'auto-redirect': redirect},
+    $httpClient.get({url, policy, timeout: 10, 'auto-cookie': false, 'auto-redirect': false},
       (error, response, body) => {
-        if (error && !response) resolve({error: String(error)});
+        if (error) resolve({error: String(error)});
         else if (!response || response.status !== 200) resolve({error: 'HTTP ' + (response?.status || '?'),body,headers:response?.headers});
         else resolve({body,headers:response.headers});
       });
@@ -55,21 +56,17 @@ function pageIssue(res) {
 const GEMINI_REGIONS = new Set('ABW AGO AIA ALA ALB AND ARE ARG ARM ASM ATA ATF ATG AUS AUT AZE BDI BEL BEN BES BFA BGD BGR BHR BHS BIH BLM BLZ BMU BOL BRA BRB BRN BTN BWA CAF CAN CCK CHE CHL CIV CMR COD COG COK COL COM CPV CRI CUW CXR CYM CYP CZE DEU DJI DMA DNK DOM DZA ECU EGY ERI ESH ESP EST ETH FIN FJI FLK FRA FRO FSM GAB GBR GEO GGY GHA GIB GIN GLP GMB GNB GNQ GRC GRD GRL GTM GUF GUM GUY HMD HND HRV HTI HUN IDN IMN IND IOT IRL IRQ ISL ISR ITA JAM JEY JOR JPN KAZ KEN KGZ KHM KIR KNA KOR KWT LAO LBN LBR LBY LCA LIE LKA LSO LTU LUX LVA MAF MAR MCO MDA MDG MDV MEX MHL MKD MLI MLT MMR MNE MNG MNP MOZ MRT MSR MTQ MUS MWI MYS MYT NAM NCL NER NFK NGA NIC NIU NLD NOR NPL NRU NZL OMN PAK PAN PCN PER PHL PLW PNG POL PRI PRT PRY PSE PYF QAT REU ROU RWA SAU SDN SEN SGP SGS SHN SJM SLB SLE SLV SMR SOM SPM SRB SSD STP SUR SVK SVN SWE SWZ SXM SYC TCA TCD TGO THA TJK TKL TKM TLS TON TTO TUN TUR TUV TWN TZA UGA UKR UMI URY USA UZB VAT VCT VEN VGB VIR VNM VUT WLF WSM YEM ZAF ZMB ZWE'.split(' '));
 
 // Inspect the public product endpoints without signing in or sending browser cookies.
-async function chat(policy, alternate) {
-  const url = alternate ? 'https://chatgpt.com/' : 'https://chatgpt.com/api/auth/providers';
-  const res = await request(policy, url, true);
+async function chat(policy) {
+  const res = await request(policy, 'https://chatgpt.com/');
   const issue = pageIssue(res);
   if (issue) return issue;
-  const provider = parseJSON(res.body)?.openai;
-  const recognized = alternate
-    ? /<title[^>]*>\s*ChatGPT\s*<\/title>/i.test(res.body || '') && /chatgpt-theme|oaiusercontent|<html[^>]+chatgpt/i.test(res.body || '')
-    : provider?.id === 'openai' && provider.signinUrl === 'https://chatgpt.com/api/auth/signin/openai';
-  return recognized ? '通过' : '响应未识别';
+  const body = res.body || '';
+  return /<title[^>]*>\s*ChatGPT\s*<\/title>/i.test(body) &&
+    /chatgpt-theme|oaiusercontent|<html[^>]+chatgpt/i.test(body) ? '通过' : '响应未识别';
 }
 
-async function gemini(policy, alternate) {
-  const url = alternate ? 'https://gemini.google.com/app?hl=en' : 'https://gemini.google.com/?hl=en';
-  const res = await request(policy, url, true);
+async function gemini(policy) {
+  const res = await request(policy, 'https://gemini.google.com/?hl=en');
   const issue = pageIssue(res);
   if (issue) return issue;
   const body = res.body || '';
@@ -79,10 +76,16 @@ async function gemini(policy, alternate) {
   return region ? '地区待确认 '+region : '响应未识别';
 }
 
-async function risk(policy) {
+async function ipInfo(policy) {
   const res = await request(policy,'https://my.ippure.com/v1/info');
-  const score = !res.error ? parseJSON(res.body)?.fraudScore : null;
-  return Number.isFinite(score) && score >= 0 && score <= 100 ? score : null;
+  const info = !res.error && parseJSON(res.body);
+  const score = info?.fraudScore;
+  return {
+    country: info?.countryCode || '',
+    native: typeof info?.isBroadcast === 'boolean' ? !info.isBroadcast : null,
+    risk: Number.isFinite(score) && score >= 0 && score <= 100 ? score : null,
+    ipIssue: res.error || ''
+  };
 }
 
 async function eachNode(nodes, inspect) {
@@ -93,30 +96,11 @@ async function eachNode(nodes, inspect) {
   await Promise.all(Array.from({length:Math.min(6,nodes.length)},worker));
 }
 
-async function inspect(n, retry) {
-  const again = result => !retry || !['通过','地区限制','HTTP 451'].includes(result);
-  const [gpt,google,score] = await Promise.all([
-    again(n.ai.ChatGPT) ? chat(n.policy,retry) : n.ai.ChatGPT,
-    again(n.ai.Gemini) ? gemini(n.policy,retry) : n.ai.Gemini,
-    n.risk == null ? risk(n.policy) : n.risk
-  ]);
-  n.ai = {ChatGPT:gpt,Gemini:google};
-  n.risk = score;
-}
-
-async function health(n) {
-  // A failed generic test is rechecked against both real applications.
-  const result = await api('POST','/v1/policies/test',{policy_names:[n.policy]});
-  const record = result[n.policy] || result[n.name];
-  const ms = record?.['round-one-total'];
-  if (!record?.error && Number.isFinite(ms) && ms > 0) {
-    n.delay = ms;
-    n.health = 'Surge 复测通过';
-  } else {
-    const confirmed = await Promise.all([chat(n.policy,true),gemini(n.policy,true)]);
-    n.health = confirmed.every(v=>v==='通过') ? '两家网页复测通过' : '连通复测待确认';
-  }
-  n.eligible = n.health !== '连通复测待确认';
+async function inspect(policy) {
+  const [ip,ChatGPT,Gemini] = await Promise.all([ipInfo(policy),chat(policy),gemini(policy)]);
+  const eligible = ip.country === 'US' && ip.native === true && ip.risk !== null &&
+    ip.risk < riskLimit && ChatGPT === '通过' && Gemini === '通过';
+  return {...ip,ai:{ChatGPT,Gemini},eligible};
 }
 
 function replacement(content, names, sources, local) {
@@ -149,8 +133,8 @@ function replacement(content, names, sources, local) {
 
 function summary(r) {
   const dual = r.rows.filter(both);
-  return [r.time,'匹配 '+r.rows.length+' · 两家通过 '+dual.length+' · 低风险并复测通过 '+r.rows.filter(x=>x.eligible).length,
-    ...r.rows.filter(x=>x.eligible).map(x=>x.name+' · '+x.risk+' 分 · '+x.health),r.note].join('\n');
+  return [r.time,'匹配 '+r.rows.length+' · 两家通过 '+dual.length+' · 美国原生且风险低于 39 并通过 '+r.rows.filter(x=>x.eligible).length,
+    ...r.rows.filter(x=>x.eligible).map(x=>x.name+' · '+x.risk+' 分'),r.note].join('\n');
 }
 
 function both(n) {
@@ -182,7 +166,7 @@ function stamp(content, state) {
 }
 
 function skipReason(state,host,phase,now) {
-  if (state.completed >= roundStart(now)) return '本轮已由 Mac 更新，跳过';
+  if (state.rule === ruleVersion && state.attempted >= roundStart(now)) return '本轮已检测或已启动，跳过';
   if (state.until > now) return '另一轮检测正在运行，跳过';
   if (phase === 'primary' && state.writer && state.writer !== host) return '由上次成功的 Mac 优先刷新，本机等待 07:00 补位';
   return '';
@@ -218,39 +202,40 @@ async function run() {
   const groupLine = content => content.split('\n').find(l=>l.split('=')[0].trim()===TARGET);
   const original = groupLine(section.content);
   const token = randomID();
-  await write(section,stamp(section.content,{...state,token,until:Date.now()+15*60*1000}));
+  const attempt = {...state,rule:ruleVersion,attempted:Date.now()};
+  await write(section,stamp(section.content,{...attempt,token,until:Date.now()+15*60*1000}));
   try {
     const data = await api('GET','/v1/policies',{include_external:true});
     const rows = inventory(data);
     if (!rows.length) throw new Error('没有匹配的美国节点');
-    for (const n of rows) {n.ai={};n.eligible=false;}
-    await eachNode(rows,n=>inspect(n,false));
-    for (const n of rows) n.first = {...n.ai,risk:n.risk};
-    await eachNode(rows.filter(n=>!both(n) || n.risk===null),n=>inspect(n,true));
-    await eachNode(rows.filter(n=>both(n) && n.risk!==null && n.risk<=riskLimit),health);
+    const results = new Map();
+    await eachNode([...new Set(rows.map(n=>n.policy))],async policy=>{
+      results.set(policy,await inspect(policy));
+    });
+    for (const n of rows) Object.assign(n,results.get(n.policy));
     const qualified = rows.filter(n=>n.eligible);
     const passed = [...new Set(qualified.map(n=>n.name))];
     const current = await readSection();
     if (readState(current.content).token !== token || groupLine(current.content)!==original) throw new Error('检测期间目标组或写入权已变化');
     let content = current.content;
-    let next = state;
+    let next = attempt;
     if (qualified.length) {
       const sources = [...new Set(qualified.map(n=>n.source).filter(Boolean))];
       const local = qualified.some(n=>!n.source);
       if (rows.some(n=>!n.eligible && passed.includes(n.name) && (n.source ? sources.includes(n.source) : local))) throw new Error('同名节点结果冲突');
       content = replacement(content,passed,sources,local);
-      next = {writer:host,completed:Date.now(),count:qualified.length};
+      next = {...attempt,writer:host,completed:Date.now(),count:qualified.length};
     }
     const {token:oldToken,until:oldUntil,...finished} = next;
     await write(current,stamp(content,finished));
-    const report = {time:new Date().toISOString(),rows,note:qualified.length?'AI Picks 已写入并读回':'本轮零条合格，保留上次配置，可在补位时复测'};
+    const report = {time:new Date().toISOString(),rows,note:qualified.length?'AI Picks 已写入并读回':'本轮零条合格，保留上次配置，本轮结束'};
     $persistentStore.write(JSON.stringify(report),REPORT);
     console.log(summary(report));
     return {title:'AI Picks',content:summary(report)};
   } catch(error) {
     const current = await readSection();
     if (readState(current.content).token === token) {
-      const {token:t,until:u,...previous} = state;
+      const {token:t,until:u,...previous} = attempt;
       await write(current,stamp(current.content,previous));
     }
     throw error;
