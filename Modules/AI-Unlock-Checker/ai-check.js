@@ -1,7 +1,12 @@
 'use strict';
 // Surge Mac. All network probes explicitly use one named policy and no cookie jar.
 
-const TARGET = 'AI Picks';
+function targetName(content) {
+  const names = content.split('\n').filter(line=>line.includes('='))
+    .map(line=>line.split('=')[0].trim()).filter(name=>/^(?:🔍\s*)?AI Picks$/u.test(name));
+  if (names.length !== 1) throw new Error('AI Picks 目标组缺失或重复');
+  return names[0];
+}
 const REPORT = 'ai-picks-native-us-v1';
 const mode = typeof $argument === 'string' ? $argument : 'primary';
 const ruleVersion = 'us-native-risk-lt39-v1';
@@ -104,17 +109,18 @@ async function inspect(policy) {
 }
 
 function replacement(content, names, sources, local) {
+  const target = targetName(content);
   const lines = content.split('\n');
-  const indices = lines.map((line, idx) => line.split('=')[0].trim() === TARGET ? idx : -1).filter(idx => idx >= 0);
+  const indices = lines.map((line, idx) => line.split('=')[0].trim() === target ? idx : -1).filter(idx => idx >= 0);
   if (indices.length !== 1) throw new Error('目标组缺失或重复');
   const i = indices[0];
   // Accept only the expected smart group with named options, no explicit members.
-  const standby = TARGET + ' = select, 🇺🇸USA';
+  const standby = target + ' = select, 🇺🇸USA';
   if (!names.length) {
     lines[i] = standby;
     return lines.join('\n');
   }
-  if (lines[i].trim() === standby) lines[i] = TARGET + ' = smart, evaluate-before-use=1';
+  if (lines[i].trim() === standby) lines[i] = target + ' = smart, evaluate-before-use=1';
   const rhs = lines[i].slice(lines[i].indexOf('=') + 1);
   const fields = rhs.match(/(?:[^,"\n]|"[^"\n]*")+/g) || [];
   if (fields.shift()?.trim() !== 'smart' || fields.some(f => !/^\s*[\w-]+\s*=/.test(f))) throw new Error('目标组结构已变化');
@@ -124,10 +130,10 @@ function replacement(content, names, sources, local) {
   const literal = s => Array.from(s, c => /[a-zA-Z0-9\u0080-\u{10FFFF}]/u.test(c) ? c :
     Array.from({length:c.length}, (_,j) => '\\u' + c.charCodeAt(j).toString(16).padStart(4,'0')).join('')).join('');
   const filter = '^(?:' + names.map(literal).join('|') + ')$';
-  if (sources.some(g=>/[,"\r\n]/.test(g) || g===TARGET)) throw new Error('来源组名称无法安全引用');
+  if (sources.some(g=>/[,"\r\n]/.test(g) || g===target)) throw new Error('来源组名称无法安全引用');
   const includes = (sources.length ? ', include-other-group="' + sources.join(', ') + '"' : '') +
     (local ? ', include-all-proxies=1' : '');
-  lines[i] = TARGET + ' = smart' + includes + ', policy-regex-filter=' + filter + keep.map(f=>','+f).join('');
+  lines[i] = target + ' = smart' + includes + ', policy-regex-filter=' + filter + keep.map(f=>','+f).join('');
   return lines.join('\n');
 }
 
@@ -159,7 +165,8 @@ function readState(content) {
 
 function stamp(content, state) {
   const lines = content.split('\n').filter(l=>!l.startsWith(marker));
-  const i = lines.findIndex(l=>l.split('=')[0].trim() === TARGET);
+  const target = targetName(content);
+  const i = lines.findIndex(l=>l.split('=')[0].trim() === target);
   if (i<0) throw new Error('配置中缺少 AI Picks');
   lines.splice(i,0,marker+JSON.stringify(state));
   return lines.join('\n');
@@ -199,7 +206,8 @@ async function run() {
   }
   const skip = skipReason(state,host,mode,Date.now());
   if (skip) {console.log(skip);return {title:'AI Picks',content:skip};}
-  const groupLine = content => content.split('\n').find(l=>l.split('=')[0].trim()===TARGET);
+  const target = targetName(section.content);
+  const groupLine = content => content.split('\n').find(l=>l.split('=')[0].trim()===target);
   const original = groupLine(section.content);
   const token = randomID();
   const attempt = {...state,rule:ruleVersion,attempted:Date.now()};
