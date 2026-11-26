@@ -1,5 +1,5 @@
 #!name=AI Unlock Checker
-#!desc=从所有节点按名称筛选美国线路。按三家 AI 匿名检测结果筛选，可选显示 IP 风险分，可自动维护 AI Pool。
+#!desc=从所有节点按名称筛选美国线路。按三家 AI 匿名检测结果筛选，可选显示 IP 风险分，可自动维护 AI Picks。
 #!requirement=SYSTEM = 'macOS'
 #!arguments=mode:preview,risk:off
 #!arguments-desc=risk=on 显示 IPPure 风险分，分数不影响入组。preview 只检测；改为 apply 后，每次运行都可写回。Mac 当地时间每周三、周日 06:30 检测，可手动运行 AI Unlock Scan。
